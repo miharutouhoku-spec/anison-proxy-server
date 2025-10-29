@@ -1,0 +1,14 @@
+{
+  "name": "anison-scraper-api",
+  "version": "1.0.0",
+  "description": "Proxy API for scraping anison.info",
+  "main": "anison_scraper_api.js",
+  "scripts": {
+    "start": "node anison_scraper_api.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0-rc.12",
+    "express": "^4.19.2"
+  }
+}

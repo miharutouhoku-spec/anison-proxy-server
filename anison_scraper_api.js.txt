@@ -1,0 +1,106 @@
+// このスクリプトは、Google Apps Scriptではなく、外部のNode.js環境（Vercel, Herokuなど）で実行する必要があります。
+// 実行には 'express', 'axios', 'cheerio' のライブラリが必要です。
+
+const express = require('express');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// アニソンデータベースのベースURL (httpに戻しています)
+const BASE_URL = "http://anison.info/data/search.php";
+// 一般的なPCブラウザのUser-Agentを設定
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+
+app.use(express.json());
+app.use((req, res, next) => {
+    // CORS設定: どこからでもアクセスできるように許可
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    next();
+});
+
+/**
+ * アニソンデータベースの検索結果をスクレイピングするAPIエンドポイント
+ * クエリパラメータ: ?q=検索キーワード
+ */
+app.get('/api/search', async (req, res) => {
+    const keyword = req.query.q;
+
+    if (!keyword) {
+        return res.status(400).json({ error: '検索キーワード (q) が必要です。' });
+    }
+
+    // 検索URLをエンコードして構築
+    const searchUrl = `${BASE_URL}?q=${encodeURIComponent(keyword)}`;
+
+    try {
+        // 外部サーバーからのリクエストを実行
+        const response = await axios.get(searchUrl, {
+            // anison.infoはEUC-JPですが、外部ホスティング環境での処理を簡易化するためarraybufferで取得
+            responseType: 'arraybuffer', 
+            headers: {
+                'User-Agent': USER_AGENT
+            }
+        });
+        
+        // EUC-JPのHTMLをバイナリとして扱いcheerioでパース
+        // Vercelなどの環境ではこの方法が最も安定して動作することが多いです
+        const html = response.data.toString('binary'); 
+        const $ = cheerio.load(html);
+
+        const results = [];
+        // スプレッドシートのヘッダー情報
+        const headers = ["アニメタイトル", "楽曲名", "種別", "アーティスト名", "放送/収録年"];
+        
+        // 検索結果テーブルのtr要素を反復処理
+        $('table tr').each((i, element) => {
+            if (i === 0) return; // ヘッダー行をスキップ
+
+            const cells = $(element).find('td');
+            
+            if (cells.length >= 6) {
+                // データの抽出 (anison.infoの列インデックスに基づきます)
+                const animeTitle = $(cells[1]).text().trim();
+                const songTitle = $(cells[2]).text().trim();
+                const relationType = $(cells[3]).text().trim();
+                const artistName = $(cells[4]).text().trim();
+                const releaseYear = $(cells[5]).text().trim();
+
+                // 楽曲名が空でない行のみを結果に含める
+                if (songTitle) {
+                    results.push({
+                        animeTitle,
+                        songTitle,
+                        relationType,
+                        artistName,
+                        releaseYear,
+                    });
+                }
+            }
+        });
+
+        // 成功時のレスポンス
+        res.json({
+            success: true,
+            keyword: keyword,
+            headers: headers,
+            data: results,
+            source: searchUrl
+        });
+
+    } catch (error) {
+        console.error('Scraping Error:', error.message);
+        // エラー時のレスポンス
+        res.status(500).json({ error: 'スクレイピング中にサーバー側でエラーが発生しました。', details: error.message });
+    }
+});
+
+// サーバーの起動
+app.listen(PORT, () => {
+    console.log(`Proxy server running on port ${PORT}`);
+});
+// 
+// このファイルを実行するには、Node.js環境で以下のパッケージをインストールする必要があります:
+// npm install express axios cheerio
+//
